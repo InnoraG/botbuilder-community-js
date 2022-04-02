@@ -5,6 +5,7 @@ import { Activity, ActivityTypes, TurnContext, ConversationReference, ResourceRe
 import * as Twilio from 'twilio';
 import { MessageInstance } from 'twilio/lib/rest/api/v2010/account/message';
 import { CustomWebAdapter } from '@botbuildercommunity/core';
+import axios from 'axios';
 
 /**
  * Settings used to configure a `TwilioWhatsAppAdapter` instance.
@@ -106,8 +107,8 @@ export class TwilioWhatsAppAdapter extends CustomWebAdapter {
                     const message = this.parseActivity(activity);
 
                     try {
-                        const res: MessageInstance = await this.client.messages.create(message);
-                        responses.push({ id: res.sid });
+                        this.processOutboundEvent(activity,message);
+                        responses.push({ id: 'res.sid' });
                     } catch (error) {
                         throw new Error(`TwilioWhatsAppAdapter.sendActivities(): ${ error.message }.`);
                     }
@@ -121,6 +122,66 @@ export class TwilioWhatsAppAdapter extends CustomWebAdapter {
 
         return responses;
     }
+
+    processOutboundEvent(activity,message) {
+        const customEndpointURL = activity.serviceUrl; //this.caps.TWILIO_WHATSAPP_BOT_ENDPOINT;
+        const sidString = activity.replyToId; //'SM3b3aede1b6efd64cca02f55bfdc3e5ee';
+        const accSidString = "AC6c052941e00067bdecd68b80874c5529";
+        const toNumber = activity.recipient.id.replace('whatsapp:', ''); //activity.to.replace('+', '');
+        const fromNumber = activity.from.id.replace('whatsapp:', ''); //activity.from.replace('+:', '');
+        //const serviceUrl = null;//`http://${process.env.TWILIO_WHATSAPP_BOTIUMDOMAIN || 'localhost'}:${this.caps.TWILIO_SMS_INBOUNDPORT}${this.caps.TWILIO_SMS_INBOUNDENDPOINT}/sms`;
+        const reqFinalBodySignature = {
+          SmsMessageSid: sidString,
+          NumMedia: "0",
+          ProfileName: "Ronni",
+          SmsSid: sidString,
+          WaId: fromNumber, // TWILIO_SMS_FROM (botium number)
+          SmsStatus: "received",
+          Body: message.body, // messageText,
+          To: toNumber,//"whatsapp:+" + toNumber, // TWILIO_SMS_TO (botkit number)
+          NumSegments: "1",
+          MessageSid: sidString,
+          AccountSid: accSidString,
+          From: fromNumber,//"whatsapp:+" + fromNumber, // TWILIO_SMS_FROM (botium number)
+          ApiVersion: "2010-04-01",
+          //serviceUrl: serviceUrl
+        }
+        const reqFinalBody = `SmsMessageSid=${sidString}&NumMedia=0&ProfileName=Ronni&SmsSid=${sidString}&WaId=${fromNumber}&SmsStatus=received&Body=${reqFinalBodySignature.Body}&To=whatsapp%3A%2B${toNumber}&NumSegments=1&MessageSid=${sidString}&AccountSid=${accSidString}&From=whatsapp%3A%2B${fromNumber}&ApiVersion=2010-04-01`;//&serviceUrl=${serviceUrl}`;
+        //const reqFinalBodyConstruct = Object.keys(reqFinalBodySignature).map(key => key + '=' + reqFinalBodySignature[key]).join('&');
+        //const authToken = this.caps.TWILIO_SMS_AUTH_TOKEN;
+        //console.log(authToken)
+        console.log(customEndpointURL)
+        console.log((reqFinalBodySignature))
+        //const twilioSignature = webhooks.getExpectedTwilioSignature(authToken, customEndpointURL, (reqFinalBodySignature));
+        //console.log(twilioSignature)
+        axios.post(customEndpointURL, reqFinalBody,
+          {
+            headers: {
+              // 'application/json' is the modern content-type for JSON, but some
+              // older servers may use 'text/json'.
+              // See: http://bit.ly/text-json
+              'Connection': 'close',
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'X-Twilio-Signature': 'twilioSignature'
+              //'content-type': 'text/json'
+            }
+          }
+        )
+          .then(message => {
+            console.log(`Sending message. "${JSON.stringify(reqFinalBody)}" is ${message.statusText} - ${message.status}`)
+          })
+          .catch(err => {
+            console.log(`Failed to send message. Parameters may be incorrect: "${JSON.stringify(reqFinalBody)}" Error: "${err}"`)
+            throw err
+          })
+        /*return this.client.messages
+          .create(opts)
+          .then(message => debug(`Sending message. "${JSON.stringify(opts)}"`))
+          .catch(err => {
+            debug(`Failed to send message. Parameters may be incorrect: "${JSON.stringify(opts)}" Error: "${err}"`)
+            throw err
+          })*/
+      }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     public async updateActivity(context: TurnContext, activity: Partial<Activity>): Promise<void> {
@@ -213,7 +274,7 @@ export class TwilioWhatsAppAdapter extends CustomWebAdapter {
             channelData: message,
             localTimezone: null,
             callerId: null,
-            serviceUrl: null,
+            serviceUrl: message.serviceUrl,
             listenFor: null,
             label: message.MessagingServiceSid,
             valueType: null,
